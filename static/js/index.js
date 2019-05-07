@@ -39,7 +39,7 @@ var codeCommune = null;
 
 var communesLayer = null;
 var sectionsLayer = null;
-var labelsSections = [];
+var evoPrixSection = null;
 
 var dateMin = '01-01-2015';
 var dateMax = '01-01-2019';
@@ -62,24 +62,6 @@ $('.input-daterange input').each(function() {
     $(this).datepicker('clearDates');
 });
 
-
-function exportCSV(el, data, fileName) {
-	
-	var json = data;
-	var fields = Object.keys(json[0])
-	var replacer = function(key, value) { return value === null ? '' : value } 
-	var csv = json.map(function(row){
-	  return fields.map(function(fieldName){
-		return JSON.stringify(row[fieldName], replacer)
-	  }).join(';')
-	})
-	csv.unshift(fields.join(';')); // add header column
-	csv = csv.join('\r\n');
-	
-	el.setAttribute("href", "data:text/csv;charset=utf-8," + encodeURIComponent(csv));
-	el.setAttribute("download", fileName);
-}
-
 function selectionnerDepartement() {
 	// L'utilisateur a cliqué sur la liste déroulante des départements
 	var e = document.getElementById("departements");
@@ -94,13 +76,6 @@ function selectionnerCommune() {
 	entrerDansCommune(sonCode);
 }
 
-function selectionnerSection() {
-	// L'utilisateur a cliqué sur la liste déroulante des sections
-	var e = document.getElementById("sections");
-	var sonCode = e.options[e.selectedIndex].value;
-	console.log(sonCode);
-}
-
 function onEachFeatureCommune(feature, layer) {
 
 	$('#communes').append($('<option />', {
@@ -112,44 +87,63 @@ function onEachFeatureCommune(feature, layer) {
 	});
 }
 
-function onEachFeatureSection(feature, layer) {
+var paletteCouleurPrix = [
+	"#FF4540", // 0
+	"#FF9640", // 1
+	"#FFBF40", // 2
+	"#FFE740", // 3
+	"#EDFD3F", // 4
+	"#A7F43D", // 5
+	"#38E05D", // 6
+];
 
-	var label = L.marker(layer.getBounds().getCenter(), {
-			interactive: false,
-			icon: L.divIcon({
-				className: 'labelSection',
-				html: (feature.properties.prefixe + feature.properties.code).replace(/^0+/, ''),
-			})
-		});
-	label.addTo(map);
-	labelsSections.push(label);
-	$('#sections').append($('<option />', {
-		value: (feature.properties.prefixe + ('0' + feature.properties.code).slice(-2)),
-		text: (feature.properties.prefixe + ('0' + feature.properties.code).slice(-2)).replace(/^0+/, '')
-	}));
+var prixMinCommune = 0; // TODO recuperer a partir des data
+var prixMaxCommune = 10000; // TODO recuperer a partir des data
+
+function changerIntervalle(value, oldMin, oldMax, newMin, newMax) {
+	return (((value - oldMin) * (newMax - newMin)) / (oldMax - oldMin)) + newMin;
+}
+
+function trouverCouleurSection(prix, prixMinCommune, prixMaxCommune) {
+	var index = Math.floor(changerIntervalle(prix, prixMinCommune, prixMaxCommune, 0, paletteCouleurPrix.length));
+	return paletteCouleurPrix[index];
+}
+
+function getPrixMoyenSection(section) {
+	return  Math.round(Math.random() * 10000 * 100) / 100; // TODO: recuperer depuis DB
+}
+
+function getEvoPrixSection(section) {
+	// TODO: recuperer depuis DB
+	return {
+		"2018-01": Math.round(Math.random() * 10000 * 100) / 100,
+		"2018-02": Math.round(Math.random() * 10000 * 100) / 100,
+		"2018-03": Math.round(Math.random() * 10000 * 100) / 100
+	}
+}
+
+function onEachFeatureSection(feature, layer) {
+	var prixMoyenSection = getPrixMoyenSection(feature.properties.id);
+	var couleur = trouverCouleurSection(prixMoyenSection, prixMinCommune, prixMaxCommune);
+	layer.setStyle({fillColor:couleur});
 	layer.on({
 		click: onSectionClicked
 	});
 }
 
-function viderLabelsSections() {
-	for (label of labelsSections) {
-		map.removeLayer(label);
-	}
-	labelsSections = [];
-}
-
 function onSectionClicked(event) {
-	sonCode = event.target.feature.properties.prefixe + ('0' + event.target.feature.properties.code).slice(-2);
-	document.getElementById("sections").value = sonCode;
-	console.log(sonCode);
+	var feature = event.target.feature;
+	//TODO : afficher graphe avec evo prix moyen
+	var prixMoyenActuel = getPrixMoyenSection(feature.properties.id);
+	evoPrixSection = getEvoPrixSection(feature.properties.id);
+	console.log(prixMoyenActuel);
+	console.log(evoPrixSection);
 }
 
 
 function entrerDansCommune(sonCode) {
 
 	console.log("Nous entrons dans la commune " + sonCode);
-	viderLabelsSections();
 	codeCommune = sonCode;
 	$.getJSON("https://cadastre.data.gouv.fr/bundler/cadastre-etalab/communes/" + codeCommune + "/geojson/sections",
 		function (data) {
@@ -177,7 +171,6 @@ function entrerDansDepartement(sonCode) {
 
 	codeDepartement = sonCode;
 	console.log('Nous entrons dans le département ' + codeDepartement);
-	viderLabelsSections();
 	vue.commune = null;
 	document.getElementById('communes').innerHTML = '<option style="display:none"></option>';
 	url = "https://geo.api.gouv.fr/departements/" + codeDepartement + "/communes?geometry=contour&format=geojson&type=commune-actuelle,arrondissement-municipal"
@@ -231,49 +224,6 @@ function onDepartementClick(event) {
 		});
 	map.setView(new L.LatLng(47, 3), 5);
 	map.addLayer(osm);
-
-	// Paramètres français du range picker
-	$('input[name="daterange"]').daterangepicker({
-		opens: 'left',
-		"locale": {
-			"format": "DD/MM/YYYY",
-			"separator": " - ",
-			"applyLabel": "Valider",
-			"cancelLabel": "Annuler",
-			"fromLabel": "De",
-			"toLabel": "à",
-			"customRangeLabel": "Custom",
-			"daysOfWeek": [
-				"Dim",
-				"Lun",
-				"Mar",
-				"Mer",
-				"Jeu",
-				"Ven",
-				"Sam"
-			],
-			"monthNames": [
-				"Janvier",
-				"Février",
-				"Mars",
-				"Avril",
-				"Mai",
-				"Juin",
-				"Juillet",
-				"Août",
-				"Septembre",
-				"Octobre",
-				"Novembre",
-				"Décembre"
-			],
-			"firstDay": 1
-		}
-	}, function (start, end) {
-		// Fonction executée quand la personne change les dates
-		console.log("L'utilisateur a modifié la plage de dates. Rechargement des données.");
-		dateMin = start.format('DD-MM-YYYY');
-		dateMax = end.format('DD-MM-YYYY');
-	});
 
 	// Chargement de la liste des départements
 	$.getJSON("https://geo.api.gouv.fr/departements?fields=nom,code", 
